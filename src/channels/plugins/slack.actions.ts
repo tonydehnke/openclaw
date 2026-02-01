@@ -192,14 +192,15 @@ export function createSlackActions(providerId: string): ChannelMessageActionAdap
         const replyTo = readStringParam(params, "replyTo");
         const threadTs = threadId ?? replyTo ?? toolContext?.currentThreadTs;
         if (!threadTs) {
-          throw new Error("thread-reply requires threadId or replyTo parameter");
+          throw new Error("thread-reply requires threadId, replyTo, or thread context");
         }
         // Resolve channel: to is used as-is, channelId and context need prefix
         const toParam = readStringParam(params, "to");
         const channelIdParam = readStringParam(params, "channelId");
-        const channelId = toParam
-          ?? (channelIdParam ? `channel:${channelIdParam}` : undefined)
-          ?? (toolContext?.currentChannelId ? `channel:${toolContext.currentChannelId}` : undefined);
+        const channelId =
+          toParam ??
+          (channelIdParam ? `channel:${channelIdParam}` : undefined) ??
+          (toolContext?.currentChannelId ? `channel:${toolContext.currentChannelId}` : undefined);
         if (!channelId) {
           throw new Error("thread-reply requires channelId or to parameter");
         }
