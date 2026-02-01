@@ -190,8 +190,7 @@ export function createSlackActions(providerId: string): ChannelMessageActionAdap
         // Prefer threadId, fall back to replyTo, then context
         const threadId = readStringParam(params, "threadId");
         const replyTo = readStringParam(params, "replyTo");
-        const threadTs =
-          threadId ?? replyTo ?? toolContext?.currentThreadTs ?? toolContext?.replyToMessageId;
+        const threadTs = threadId ?? replyTo ?? toolContext?.currentThreadTs;
         if (!threadTs) {
           throw new Error("thread-reply requires threadId or replyTo parameter");
         }
