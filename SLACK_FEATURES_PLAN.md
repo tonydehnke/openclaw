@@ -114,12 +114,12 @@ Update docs to reflect new capabilities:
 
 ## Implementation Order:
 
-1. ✅ Create branch
-2. 🔄 Implement search in `src/slack/actions.ts`
-3. 🔄 Wire search through action handlers
-4. 🔄 Implement blocks in `src/slack/send.ts`
-5. 🔄 Wire blocks through action handlers
-6. 🔄 Add tests
-7. 🔄 Manual testing
-8. 🔄 Update docs
-9. 🔄 Create PR
+1. ✅ Create branch `feat/slack-search-and-blocks`
+2. ✅ Implement search in `src/slack/actions.ts`
+3. ✅ Wire search through action handlers
+4. ✅ Implement blocks in `src/slack/send.ts`
+5. ✅ Wire blocks through action handlers
+6. ✅ Add tests (4 new tests added, all 26 pass)
+7. 🔄 Manual testing (pending your Slack user token)
+8. 🔄 Update docs (can do before PR)
+9. 🔄 Create PR (ready when you are)
