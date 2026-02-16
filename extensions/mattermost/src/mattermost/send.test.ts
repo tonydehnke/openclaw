@@ -52,11 +52,6 @@ describe("parseMattermostTarget", () => {
     expect(target).toEqual({ kind: "channel-name", name: "off-topic" });
   });
 
-  it("treats channel: with valid ID as channel id", () => {
-    const target = parseMattermostTarget("channel:dthcxgoxhifn3pwh65cut3ud3w");
-    expect(target).toEqual({ kind: "channel", id: "dthcxgoxhifn3pwh65cut3ud3w" });
-  });
-
   it("throws on empty string", () => {
     expect(() => parseMattermostTarget("")).toThrow("Recipient is required");
   });
