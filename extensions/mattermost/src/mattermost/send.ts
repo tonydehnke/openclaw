@@ -51,6 +51,11 @@ function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
+/** Mattermost IDs are 26-character lowercase alphanumeric strings. */
+function isMattermostId(value: string): boolean {
+  return /^[a-z0-9]{26}$/.test(value);
+}
+
 export function parseMattermostTarget(raw: string): MattermostTarget {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -61,6 +66,16 @@ export function parseMattermostTarget(raw: string): MattermostTarget {
     const id = trimmed.slice("channel:".length).trim();
     if (!id) {
       throw new Error("Channel id is required for Mattermost sends");
+    }
+    if (id.startsWith("#")) {
+      const name = id.slice(1).trim();
+      if (!name) {
+        throw new Error("Channel name is required for Mattermost sends");
+      }
+      return { kind: "channel-name", name };
+    }
+    if (!isMattermostId(id)) {
+      return { kind: "channel-name", name: id };
     }
     return { kind: "channel", id };
   }
@@ -91,6 +106,9 @@ export function parseMattermostTarget(raw: string): MattermostTarget {
       throw new Error("Channel name is required for Mattermost sends");
     }
     return { kind: "channel-name", name };
+  }
+  if (!isMattermostId(trimmed)) {
+    return { kind: "channel-name", name: trimmed };
   }
   return { kind: "channel", id: trimmed };
 }
