@@ -247,6 +247,9 @@ export const slackPlugin: ChannelPlugin<ResolvedSlackAccount> = {
         const mediaUrl = readStringParam(params, "media", { trim: false });
         const threadId = readStringParam(params, "threadId");
         const replyTo = readStringParam(params, "replyTo");
+        // Parse blocks parameter (Block Kit JSON for interactive messages)
+        const blocksParam = params.blocks;
+        const blocks = Array.isArray(blocksParam) ? blocksParam : undefined;
         return await getSlackRuntime().channel.slack.handleSlackAction(
           {
             action: "sendMessage",
@@ -255,6 +258,7 @@ export const slackPlugin: ChannelPlugin<ResolvedSlackAccount> = {
             mediaUrl: mediaUrl ?? undefined,
             accountId: accountId ?? undefined,
             threadTs: threadId ?? replyTo ?? undefined,
+            blocks,
           },
           cfg,
           toolContext,
@@ -374,6 +378,66 @@ export const slackPlugin: ChannelPlugin<ResolvedSlackAccount> = {
         return await getSlackRuntime().channel.slack.handleSlackAction(
           { action: "emojiList", limit, accountId: accountId ?? undefined },
           cfg,
+        );
+      }
+
+      if (action === "search") {
+        const query = readStringParam(params, "query", { required: true });
+        const sort = readStringParam(params, "sort") as "timestamp" | "score" | undefined;
+        const sortDir = readStringParam(params, "sortDir") as "asc" | "desc" | undefined;
+        const count = readNumberParam(params, "count", { integer: true });
+        const page = readNumberParam(params, "page", { integer: true });
+        return await getSlackRuntime().channel.slack.handleSlackAction(
+          {
+            action: "searchMessages",
+            query,
+            sort,
+            sortDir,
+            count,
+            page,
+            accountId: accountId ?? undefined,
+          },
+          cfg,
+        );
+      }
+
+      if (action === "thread-reply") {
+        const content = readStringParam(params, "message", {
+          required: true,
+          allowEmpty: true,
+        });
+        const mediaUrl = readStringParam(params, "media", { trim: false });
+        const threadId = readStringParam(params, "threadId");
+        const replyTo = readStringParam(params, "replyTo");
+        const threadTs =
+          threadId ??
+          replyTo ??
+          (toolContext as { currentThreadTs?: string } | undefined)?.currentThreadTs;
+        if (!threadTs) {
+          throw new Error("thread-reply requires threadId, replyTo, or thread context");
+        }
+        const toParam = readStringParam(params, "to");
+        const channelIdParam = readStringParam(params, "channelId");
+        const currentChannelId = (toolContext as { currentChannelId?: string } | undefined)
+          ?.currentChannelId;
+        const channelId =
+          toParam ??
+          (channelIdParam ? `channel:${channelIdParam}` : undefined) ??
+          (currentChannelId ? `channel:${currentChannelId}` : undefined);
+        if (!channelId) {
+          throw new Error("thread-reply requires channelId or to parameter");
+        }
+        return await getSlackRuntime().channel.slack.handleSlackAction(
+          {
+            action: "sendMessage",
+            to: channelId,
+            content,
+            mediaUrl: mediaUrl ?? undefined,
+            accountId: accountId ?? undefined,
+            threadTs,
+          },
+          cfg,
+          toolContext,
         );
       }
 
