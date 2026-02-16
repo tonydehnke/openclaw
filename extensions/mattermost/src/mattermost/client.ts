@@ -128,6 +128,22 @@ export async function fetchMattermostChannel(
   return await client.request<MattermostChannel>(`/channels/${channelId}`);
 }
 
+export async function fetchMattermostChannelByName(
+  client: MattermostClient,
+  teamId: string,
+  channelName: string,
+): Promise<MattermostChannel> {
+  return await client.request<MattermostChannel>(
+    `/teams/${teamId}/channels/name/${encodeURIComponent(channelName)}`,
+  );
+}
+
+export async function fetchMattermostUserTeams(
+  client: MattermostClient,
+): Promise<Array<{ id: string; name?: string }>> {
+  return await client.request<Array<{ id: string; name?: string }>>("/users/me/teams");
+}
+
 export async function sendMattermostTyping(
   client: MattermostClient,
   params: { channelId: string; parentId?: string },
