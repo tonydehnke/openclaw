@@ -14,7 +14,7 @@ type HeldLock = {
   lockPath: string;
 };
 
-const CLEANUP_SIGNALS = ["SIGINT", "SIGTERM", "SIGQUIT", "SIGABRT"] as const;
+const CLEANUP_SIGNALS = ["SIGINT", "SIGTERM", "SIGQUIT", "SIGABRT", "SIGUSR1"] as const;
 type CleanupSignal = (typeof CLEANUP_SIGNALS)[number];
 const CLEANUP_STATE_KEY = Symbol.for("openclaw.sessionWriteLockCleanupState");
 const HELD_LOCKS_KEY = Symbol.for("openclaw.sessionWriteLockHeldLocks");
