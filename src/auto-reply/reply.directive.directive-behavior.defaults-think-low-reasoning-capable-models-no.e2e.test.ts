@@ -1,6 +1,7 @@
 import "./reply.directive.directive-behavior.e2e-mocks.js";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import type { OpenClawConfig } from "../config/config.js";
 import {
   installDirectiveBehaviorE2EHooks,
   loadModelCatalog,
@@ -8,6 +9,54 @@ import {
   withTempHome,
 } from "./reply.directive.directive-behavior.e2e-harness.js";
 import { getReplyFromConfig } from "./reply.js";
+
+function makeThinkConfig(home: string) {
+  return {
+    agents: {
+      defaults: {
+        model: "anthropic/claude-opus-4-5",
+        workspace: path.join(home, "openclaw"),
+      },
+    },
+    session: { store: path.join(home, "sessions.json") },
+  } as unknown as OpenClawConfig;
+}
+
+function makeWhatsAppConfig(home: string) {
+  return {
+    agents: {
+      defaults: {
+        model: "anthropic/claude-opus-4-5",
+        workspace: path.join(home, "openclaw"),
+      },
+    },
+    channels: { whatsapp: { allowFrom: ["*"] } },
+    session: { store: path.join(home, "sessions.json") },
+  } as unknown as OpenClawConfig;
+}
+
+async function runReplyToCurrentCase(home: string, text: string) {
+  vi.mocked(runEmbeddedPiAgent).mockResolvedValue({
+    payloads: [{ text }],
+    meta: {
+      durationMs: 5,
+      agentMeta: { sessionId: "s", provider: "p", model: "m" },
+    },
+  });
+
+  const res = await getReplyFromConfig(
+    {
+      Body: "ping",
+      From: "+1004",
+      To: "+2000",
+      MessageSid: "msg-123",
+    },
+    {},
+    makeWhatsAppConfig(home),
+  );
+
+  return Array.isArray(res) ? res[0] : res;
+}
 
 describe("directive behavior", () => {
   installDirectiveBehaviorE2EHooks();
@@ -26,15 +75,7 @@ describe("directive behavior", () => {
       const res = await getReplyFromConfig(
         { Body: "/think", From: "+1222", To: "+1222", CommandAuthorized: true },
         {},
-        {
-          agents: {
-            defaults: {
-              model: "anthropic/claude-opus-4-5",
-              workspace: path.join(home, "openclaw"),
-            },
-          },
-          session: { store: path.join(home, "sessions.json") },
-        },
+        makeThinkConfig(home),
       );
 
       const text = Array.isArray(res) ? res[0]?.text : res?.text;
@@ -57,15 +98,7 @@ describe("directive behavior", () => {
       const res = await getReplyFromConfig(
         { Body: "/think", From: "+1222", To: "+1222", CommandAuthorized: true },
         {},
-        {
-          agents: {
-            defaults: {
-              model: "anthropic/claude-opus-4-5",
-              workspace: path.join(home, "openclaw"),
-            },
-          },
-          session: { store: path.join(home, "sessions.json") },
-        },
+        makeThinkConfig(home),
       );
 
       const text = Array.isArray(res) ? res[0]?.text : res?.text;
@@ -76,70 +109,14 @@ describe("directive behavior", () => {
   });
   it("strips reply tags and maps reply_to_current to MessageSid", async () => {
     await withTempHome(async (home) => {
-      vi.mocked(runEmbeddedPiAgent).mockResolvedValue({
-        payloads: [{ text: "hello [[reply_to_current]]" }],
-        meta: {
-          durationMs: 5,
-          agentMeta: { sessionId: "s", provider: "p", model: "m" },
-        },
-      });
-
-      const res = await getReplyFromConfig(
-        {
-          Body: "ping",
-          From: "+1004",
-          To: "+2000",
-          MessageSid: "msg-123",
-        },
-        {},
-        {
-          agents: {
-            defaults: {
-              model: "anthropic/claude-opus-4-5",
-              workspace: path.join(home, "openclaw"),
-            },
-          },
-          channels: { whatsapp: { allowFrom: ["*"] } },
-          session: { store: path.join(home, "sessions.json") },
-        },
-      );
-
-      const payload = Array.isArray(res) ? res[0] : res;
+      const payload = await runReplyToCurrentCase(home, "hello [[reply_to_current]]");
       expect(payload?.text).toBe("hello");
       expect(payload?.replyToId).toBe("msg-123");
     });
   });
   it("strips reply tags with whitespace and maps reply_to_current to MessageSid", async () => {
     await withTempHome(async (home) => {
-      vi.mocked(runEmbeddedPiAgent).mockResolvedValue({
-        payloads: [{ text: "hello [[ reply_to_current ]]" }],
-        meta: {
-          durationMs: 5,
-          agentMeta: { sessionId: "s", provider: "p", model: "m" },
-        },
-      });
-
-      const res = await getReplyFromConfig(
-        {
-          Body: "ping",
-          From: "+1004",
-          To: "+2000",
-          MessageSid: "msg-123",
-        },
-        {},
-        {
-          agents: {
-            defaults: {
-              model: "anthropic/claude-opus-4-5",
-              workspace: path.join(home, "openclaw"),
-            },
-          },
-          channels: { whatsapp: { allowFrom: ["*"] } },
-          session: { store: path.join(home, "sessions.json") },
-        },
-      );
-
-      const payload = Array.isArray(res) ? res[0] : res;
+      const payload = await runReplyToCurrentCase(home, "hello [[ reply_to_current ]]");
       expect(payload?.text).toBe("hello");
       expect(payload?.replyToId).toBe("msg-123");
     });
@@ -169,7 +146,7 @@ describe("directive behavior", () => {
         {
           agents: {
             defaults: {
-              model: "anthropic/claude-opus-4-5",
+              model: { primary: "anthropic/claude-opus-4-5" },
               workspace: path.join(home, "openclaw"),
             },
           },
@@ -203,7 +180,7 @@ describe("directive behavior", () => {
         {
           agents: {
             defaults: {
-              model: "anthropic/claude-opus-4-5",
+              model: { primary: "anthropic/claude-opus-4-5" },
               workspace: path.join(home, "openclaw"),
             },
           },
