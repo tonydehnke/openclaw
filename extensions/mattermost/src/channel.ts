@@ -18,6 +18,10 @@ import {
   type ResolvedMattermostAccount,
 } from "./mattermost/accounts.js";
 import { normalizeMattermostBaseUrl } from "./mattermost/client.js";
+import {
+  listMattermostDirectoryGroups,
+  listMattermostDirectoryPeers,
+} from "./mattermost/directory.js";
 import { monitorMattermostProvider } from "./mattermost/monitor.js";
 import { probeMattermost } from "./mattermost/probe.js";
 import { sendMessageMattermost } from "./mattermost/send.js";
@@ -146,11 +150,20 @@ export const mattermostPlugin: ChannelPlugin<ResolvedMattermostAccount> = {
   groups: {
     resolveRequireMention: resolveMattermostGroupRequireMention,
   },
+  directory: {
+    self: async () => null,
+    // Both cached and live variants hit the Mattermost API directly;
+    // core's DirectoryCache handles caching at the resolver level.
+    listGroups: async (params) => listMattermostDirectoryGroups(params),
+    listGroupsLive: async (params) => listMattermostDirectoryGroups(params),
+    listPeers: async (params) => listMattermostDirectoryPeers(params),
+    listPeersLive: async (params) => listMattermostDirectoryPeers(params),
+  },
   messaging: {
     normalizeTarget: normalizeMattermostMessagingTarget,
     targetResolver: {
       looksLikeId: looksLikeMattermostTargetId,
-      hint: "<channelId|user:ID|channel:ID>",
+      hint: "<channelId|@username|channel-name>",
     },
   },
   outbound: {
