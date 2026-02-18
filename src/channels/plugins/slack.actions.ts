@@ -1,5 +1,4 @@
-import type { ChannelMessageActionAdapter, ChannelMessageActionContext } from "./types.js";
-import { readNumberParam, readStringParam } from "../../agents/tools/common.js";
+import type { ChannelMessageActionAdapter } from "./types.js";
 import { handleSlackAction, type SlackActionContext } from "../../agents/tools/slack-actions.js";
 import { extractSlackToolSend, listSlackMessageActions } from "../../slack/message-actions.js";
 import { resolveSlackChannelId } from "../../slack/targets.js";
