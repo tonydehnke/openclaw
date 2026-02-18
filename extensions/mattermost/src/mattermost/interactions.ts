@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHmac } from "node:crypto";
-import type { MattermostClient } from "./client.js";
 import { getMattermostRuntime } from "../runtime.js";
+import { updateMattermostPost, type MattermostClient } from "./client.js";
 
 const INTERACTION_MAX_BODY_BYTES = 64 * 1024;
 const INTERACTION_BODY_TIMEOUT_MS = 10_000;
@@ -103,6 +103,7 @@ export function verifyInteractionToken(context: Record<string, unknown>, token: 
 
 export type MattermostButton = {
   id: string;
+  type: "button" | "select";
   name: string;
   style?: "default" | "primary" | "danger";
   integration: {
@@ -142,6 +143,7 @@ export function buildButtonAttachments(params: {
     const token = generateInteractionToken(context);
     return {
       id: btn.id,
+      type: "button" as const,
       name: btn.name,
       style: btn.style,
       integration: {
@@ -295,24 +297,52 @@ export function createMattermostInteractionHandler(params: {
         `post=${payload.post_id} channel=${payload.channel_id}`,
     );
 
-    // Dispatch as system event so the agent can handle it
-    const eventLabel =
-      `Mattermost button click: action="${actionId}" ` +
-      `by ${payload.user_name ?? payload.user_id} ` +
-      `in channel ${payload.channel_id}`;
+    // Dispatch as system event so the agent can handle it.
+    // Wrapped in try/catch — the post update below must still run even if
+    // system event dispatch fails (e.g. missing sessionKey).
+    try {
+      const eventLabel =
+        `Mattermost button click: action="${actionId}" ` +
+        `by ${payload.user_name ?? payload.user_id} ` +
+        `in channel ${payload.channel_id}`;
 
-    core.system.enqueueSystemEvent(eventLabel, {
-      contextKey: `mattermost:interaction:${payload.post_id}:${actionId}`,
-    });
+      core.system.enqueueSystemEvent(eventLabel, {
+        sessionKey: `agent:main:mattermost:${accountId}:${payload.channel_id}`,
+        contextKey: `mattermost:interaction:${payload.post_id}:${actionId}`,
+      });
+    } catch (err) {
+      log?.(`mattermost interaction: system event dispatch failed: ${String(err)}`);
+    }
 
-    // Respond with updated message — remove the clicked button's row
-    // The caller can customize this by providing onInteraction in context
-    const response: MattermostInteractionResponse = {
-      ephemeral_text: `Action "${actionId}" received.`,
-    };
+    // Update the post via API to replace buttons with a completion indicator.
+    // We use the REST API directly rather than the callback response `update`
+    // field because Mattermost doesn't reliably process it.
+    const userName = payload.user_name ?? payload.user_id;
+    try {
+      // Fetch the original post to preserve its message text
+      const originalPost = await client.request<{
+        message?: string;
+        props?: Record<string, unknown>;
+      }>(`/posts/${payload.post_id}`);
+      const originalMessage = originalPost?.message ?? "";
 
+      await updateMattermostPost(client, payload.post_id, {
+        message: originalMessage,
+        props: {
+          attachments: [
+            {
+              text: `✓ **${actionId}** selected by @${userName}`,
+            },
+          ],
+        },
+      });
+    } catch (err) {
+      log?.(`mattermost interaction: failed to update post ${payload.post_id}: ${String(err)}`);
+    }
+
+    // Respond with empty JSON — the post update is handled above
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify(response));
+    res.end("{}");
   };
 }
