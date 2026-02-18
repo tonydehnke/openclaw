@@ -17,6 +17,7 @@ import {
   recordPendingHistoryEntryIfEnabled,
   resolveControlCommandGate,
   resolveChannelMediaMaxBytes,
+  registerPluginHttpRoute,
   type HistoryEntry,
 } from "openclaw/plugin-sdk";
 import { getMattermostRuntime } from "../runtime.js";
@@ -32,6 +33,7 @@ import {
   type MattermostPost,
   type MattermostUser,
 } from "./client.js";
+import { createMattermostInteractionHandler, setInteractionCallbackUrl } from "./interactions.js";
 import {
   createDedupeCache,
   formatInboundFromLabel,
@@ -246,6 +248,28 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
   const botUserId = botUser.id;
   const botUsername = botUser.username?.trim() || undefined;
   runtime.log?.(`mattermost connected as ${botUsername ? `@${botUsername}` : botUserId}`);
+
+  // Register HTTP callback endpoint for interactive button clicks.
+  // Mattermost POSTs to this URL when a user clicks a button action.
+  const gatewayPort = typeof cfg.gateway?.port === "number" ? cfg.gateway.port : 18789;
+  const interactionPath = `/mattermost/interactions/${account.accountId}`;
+  const callbackUrl = `http://localhost:${gatewayPort}${interactionPath}`;
+  setInteractionCallbackUrl(account.accountId, callbackUrl);
+  const unregisterInteractions = registerPluginHttpRoute({
+    path: interactionPath,
+    fallbackPath: "/mattermost/interactions/default",
+    handler: createMattermostInteractionHandler({
+      client,
+      botUserId,
+      accountId: account.accountId,
+      callbackUrl,
+      log: (msg) => runtime.log?.(msg),
+    }),
+    pluginId: "mattermost",
+    source: "mattermost-interactions",
+    accountId: account.accountId,
+    log: (msg) => runtime.log?.(msg),
+  });
 
   const channelCache = new Map<string, { value: MattermostChannel | null; expiresAt: number }>();
   const userCache = new Map<string, { value: MattermostUser | null; expiresAt: number }>();

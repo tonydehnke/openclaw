@@ -8,16 +8,23 @@ import {
   normalizeAccountId,
   setAccountEnabledInConfigSection,
   type ChannelPlugin,
+  type ChannelMessageActionName,
 } from "openclaw/plugin-sdk";
 import { MattermostConfigSchema } from "./config-schema.js";
 import { resolveMattermostGroupRequireMention } from "./group-mentions.js";
 import {
+  listEnabledMattermostAccounts,
   listMattermostAccountIds,
   resolveDefaultMattermostAccountId,
   resolveMattermostAccount,
   type ResolvedMattermostAccount,
 } from "./mattermost/accounts.js";
 import { normalizeMattermostBaseUrl } from "./mattermost/client.js";
+import {
+  buildButtonAttachments,
+  getInteractionCallbackUrl,
+  resolveInteractionCallbackUrl,
+} from "./mattermost/interactions.js";
 import { monitorMattermostProvider } from "./mattermost/monitor.js";
 import { probeMattermost } from "./mattermost/probe.js";
 import { sendMessageMattermost } from "./mattermost/send.js";
@@ -151,6 +158,95 @@ export const mattermostPlugin: ChannelPlugin<ResolvedMattermostAccount> = {
     targetResolver: {
       looksLikeId: looksLikeMattermostTargetId,
       hint: "<channelId|user:ID|channel:ID>",
+    },
+  },
+  actions: {
+    listActions: ({ cfg }) => {
+      const accounts = listEnabledMattermostAccounts(cfg).filter((a) => a.botToken && a.baseUrl);
+      if (accounts.length === 0) {
+        return [];
+      }
+      return ["send"] satisfies ChannelMessageActionName[];
+    },
+    supportsButtons: ({ cfg }) => {
+      const accounts = listEnabledMattermostAccounts(cfg).filter((a) => a.botToken && a.baseUrl);
+      return accounts.length > 0;
+    },
+    handleAction: async ({ action, params, cfg, accountId }) => {
+      if (action !== "send") {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: `Unsupported action: ${action}` }],
+        };
+      }
+
+      const to =
+        typeof params.to === "string"
+          ? params.to.trim()
+          : typeof params.target === "string"
+            ? params.target.trim()
+            : "";
+      if (!to) {
+        return {
+          isError: true,
+          content: [{ type: "text" as const, text: "Send requires a target (to)." }],
+        };
+      }
+
+      const message = typeof params.message === "string" ? params.message : "";
+      const replyToId = typeof params.replyToId === "string" ? params.replyToId : undefined;
+      const resolvedAccountId = accountId ?? undefined;
+
+      // Build props with button attachments if buttons are provided
+      let props: Record<string, unknown> | undefined;
+      if (params.buttons && Array.isArray(params.buttons)) {
+        const account = resolveMattermostAccount({ cfg, accountId: resolvedAccountId });
+        const callbackUrl = resolveInteractionCallbackUrl(account.accountId, cfg);
+
+        const buttons = (params.buttons as Array<Record<string, unknown>>).map((btn) => ({
+          id: String(btn.id ?? btn.callback_data ?? ""),
+          name: String(btn.text ?? btn.name ?? btn.label ?? ""),
+          style: (btn.style as "default" | "primary" | "danger") ?? "default",
+          context:
+            typeof btn.context === "object" && btn.context !== null
+              ? (btn.context as Record<string, unknown>)
+              : undefined,
+        }));
+
+        const attachmentText =
+          typeof params.attachmentText === "string" ? params.attachmentText : undefined;
+        props = {
+          attachments: buildButtonAttachments({
+            callbackUrl,
+            buttons,
+            text: attachmentText,
+          }),
+        };
+      }
+
+      const mediaUrl =
+        typeof params.media === "string" ? params.media.trim() || undefined : undefined;
+
+      const result = await sendMessageMattermost(to, message, {
+        accountId: resolvedAccountId,
+        replyToId,
+        props,
+        mediaUrl,
+      });
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              ok: true,
+              channel: "mattermost",
+              messageId: result.messageId,
+              channelId: result.channelId,
+            }),
+          },
+        ],
+      };
     },
   },
   outbound: {

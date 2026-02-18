@@ -162,9 +162,10 @@ export async function createMattermostPost(
     message: string;
     rootId?: string;
     fileIds?: string[];
+    props?: Record<string, unknown>;
   },
 ): Promise<MattermostPost> {
-  const payload: Record<string, string> = {
+  const payload: Record<string, unknown> = {
     channel_id: params.channelId,
     message: params.message,
   };
@@ -172,10 +173,34 @@ export async function createMattermostPost(
     payload.root_id = params.rootId;
   }
   if (params.fileIds?.length) {
-    (payload as Record<string, unknown>).file_ids = params.fileIds;
+    payload.file_ids = params.fileIds;
+  }
+  if (params.props) {
+    payload.props = params.props;
   }
   return await client.request<MattermostPost>("/posts", {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateMattermostPost(
+  client: MattermostClient,
+  postId: string,
+  params: {
+    message?: string;
+    props?: Record<string, unknown>;
+  },
+): Promise<MattermostPost> {
+  const payload: Record<string, unknown> = { id: postId };
+  if (params.message !== undefined) {
+    payload.message = params.message;
+  }
+  if (params.props !== undefined) {
+    payload.props = params.props;
+  }
+  return await client.request<MattermostPost>(`/posts/${postId}`, {
+    method: "PUT",
     body: JSON.stringify(payload),
   });
 }
