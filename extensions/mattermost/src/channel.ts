@@ -24,6 +24,7 @@ import {
   buildButtonAttachments,
   getInteractionCallbackUrl,
   resolveInteractionCallbackUrl,
+  setInteractionSecret,
 } from "./mattermost/interactions.js";
 import { monitorMattermostProvider } from "./mattermost/monitor.js";
 import { probeMattermost } from "./mattermost/probe.js";
@@ -201,6 +202,7 @@ export const mattermostPlugin: ChannelPlugin<ResolvedMattermostAccount> = {
       let props: Record<string, unknown> | undefined;
       if (params.buttons && Array.isArray(params.buttons)) {
         const account = resolveMattermostAccount({ cfg, accountId: resolvedAccountId });
+        if (account.botToken) setInteractionSecret(account.botToken);
         const callbackUrl = resolveInteractionCallbackUrl(account.accountId, cfg);
 
         const buttons = (params.buttons as Array<Record<string, unknown>>).map((btn) => ({

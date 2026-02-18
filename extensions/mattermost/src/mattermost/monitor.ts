@@ -33,7 +33,11 @@ import {
   type MattermostPost,
   type MattermostUser,
 } from "./client.js";
-import { createMattermostInteractionHandler, setInteractionCallbackUrl } from "./interactions.js";
+import {
+  createMattermostInteractionHandler,
+  setInteractionCallbackUrl,
+  setInteractionSecret,
+} from "./interactions.js";
 import {
   createDedupeCache,
   formatInboundFromLabel,
@@ -217,6 +221,9 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
   const botUserId = botUser.id;
   const botUsername = botUser.username?.trim() || undefined;
   runtime.log?.(`mattermost connected as ${botUsername ? `@${botUsername}` : botUserId}`);
+
+  // Derive a stable HMAC secret from the bot token so CLI and gateway share it.
+  setInteractionSecret(botToken);
 
   // Register HTTP callback endpoint for interactive button clicks.
   // Mattermost POSTs to this URL when a user clicks a button action.

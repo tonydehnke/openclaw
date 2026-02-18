@@ -61,12 +61,21 @@ export function resolveInteractionCallbackUrl(
 }
 
 // ── HMAC token management ──────────────────────────────────────────────
+// Secret is derived from the bot token so it's stable across CLI and gateway processes.
 
 let interactionSecret: string | undefined;
 
+export function setInteractionSecret(botToken: string): void {
+  interactionSecret = createHmac("sha256", "openclaw-mattermost-interactions")
+    .update(botToken)
+    .digest("hex");
+}
+
 export function getInteractionSecret(): string {
   if (!interactionSecret) {
-    interactionSecret = randomBytes(32).toString("hex");
+    throw new Error(
+      "Interaction secret not initialized — call setInteractionSecret(botToken) first",
+    );
   }
   return interactionSecret;
 }
