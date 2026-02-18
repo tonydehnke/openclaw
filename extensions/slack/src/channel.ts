@@ -28,6 +28,30 @@ import {
   type ChannelPlugin,
   type ResolvedSlackAccount,
 } from "openclaw/plugin-sdk";
+
+// Local helper — mirrors core's readStringParam but avoids internal import
+function readStringParam(
+  params: Record<string, unknown>,
+  key: string,
+  options: { required?: boolean; trim?: boolean; label?: string; allowEmpty?: boolean } = {},
+): string | undefined {
+  const { required = false, trim = true, label = key, allowEmpty = false } = options;
+  const raw = params[key];
+  if (typeof raw !== "string") {
+    if (required) {
+      throw new Error(`${label} required`);
+    }
+    return undefined;
+  }
+  const value = trim ? raw.trim() : raw;
+  if (!value && !allowEmpty) {
+    if (required) {
+      throw new Error(`${label} required`);
+    }
+    return undefined;
+  }
+  return value;
+}
 import { getSlackRuntime } from "./runtime.js";
 
 const meta = getChatChannelMeta("slack");

@@ -15,9 +15,9 @@ import {
   clearHistoryEntriesIfEnabled,
   DEFAULT_GROUP_HISTORY_LIMIT,
   recordPendingHistoryEntryIfEnabled,
+  registerPluginHttpRoute,
   resolveControlCommandGate,
   resolveChannelMediaMaxBytes,
-  registerPluginHttpRoute,
   type HistoryEntry,
 } from "openclaw/plugin-sdk";
 import { getMattermostRuntime } from "../runtime.js";
@@ -66,6 +66,12 @@ export type MonitorMattermostOpts = {
 type FetchLike = (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>;
 type MediaKind = "image" | "audio" | "video" | "document" | "unknown";
 
+type MattermostReaction = {
+  user_id?: string;
+  post_id?: string;
+  emoji_name?: string;
+  create_at?: number;
+};
 const RECENT_MATTERMOST_MESSAGE_TTL_MS = 5 * 60_000;
 const RECENT_MATTERMOST_MESSAGE_MAX = 2000;
 const CHANNEL_CACHE_TTL_MS = 5 * 60_000;
@@ -124,37 +130,6 @@ function channelChatType(kind: ChatType): "direct" | "group" | "channel" {
     return "group";
   }
   return "channel";
-}
-
-type ResolveGroupRequireMentionFn = (params: {
-  cfg: OpenClawConfig;
-  channel: "mattermost";
-  accountId?: string | null;
-  groupId?: string | null;
-  requireMentionOverride?: boolean;
-  overrideOrder?: "before-config" | "after-config";
-}) => boolean;
-
-export function resolveMattermostRequireMention(params: {
-  kind: ChatType;
-  cfg: OpenClawConfig;
-  accountId: string;
-  groupId: string;
-  requireMention?: boolean;
-  resolveRequireMention: ResolveGroupRequireMentionFn;
-}): boolean {
-  if (params.kind === "direct") {
-    return false;
-  }
-  return params.resolveRequireMention({
-    cfg: params.cfg,
-    channel: "mattermost",
-    accountId: params.accountId,
-    groupId: params.groupId,
-    // chatmode should set the default mention behavior when no per-group override exists.
-    requireMentionOverride: params.requireMention,
-    overrideOrder: "after-config",
-  });
 }
 
 function normalizeAllowEntry(entry: string): string {
@@ -604,14 +579,14 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
       : { triggered: false, stripped: rawText };
     const oncharTriggered = oncharResult.triggered;
 
-    const shouldRequireMention = resolveMattermostRequireMention({
-      kind,
-      cfg,
-      accountId: account.accountId,
-      groupId: channelId,
-      requireMention: account.requireMention,
-      resolveRequireMention: core.channel.groups.resolveRequireMention,
-    });
+    const shouldRequireMention =
+      kind !== "direct" &&
+      core.channel.groups.resolveRequireMention({
+        cfg,
+        channel: "mattermost",
+        accountId: account.accountId,
+        groupId: channelId,
+      });
     const shouldBypassMention =
       isControlCommand && shouldRequireMention && !wasMentioned && commandAuthorized;
     const effectiveWasMentioned = wasMentioned || shouldBypassMention || oncharTriggered;
@@ -859,6 +834,145 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
     }
   };
 
+  const handleReactionEvent = async (payload: MattermostEventPayload) => {
+    const reactionData = payload.data?.reaction;
+    if (!reactionData) {
+      return;
+    }
+    let reaction: MattermostReaction | null = null;
+    if (typeof reactionData === "string") {
+      try {
+        reaction = JSON.parse(reactionData) as MattermostReaction;
+      } catch {
+        return;
+      }
+    } else if (typeof reactionData === "object") {
+      reaction = reactionData as MattermostReaction;
+    }
+    if (!reaction) {
+      return;
+    }
+
+    const userId = reaction.user_id?.trim();
+    const postId = reaction.post_id?.trim();
+    const emojiName = reaction.emoji_name?.trim();
+    if (!userId || !postId || !emojiName) {
+      return;
+    }
+
+    // Skip reactions from the bot itself
+    if (userId === botUserId) {
+      return;
+    }
+
+    const isRemoved = payload.event === "reaction_removed";
+    const action = isRemoved ? "removed" : "added";
+
+    const senderInfo = await resolveUserInfo(userId);
+    const senderName = senderInfo?.username?.trim() || userId;
+
+    // Resolve the channel from broadcast or post to route to the correct agent session
+    const channelId = payload.broadcast?.channel_id;
+    if (!channelId) {
+      // Without a channel id we cannot verify DM/group policies — drop to be safe
+      logVerboseMessage(
+        `mattermost: drop reaction (no channel_id in broadcast, cannot enforce policy)`,
+      );
+      return;
+    }
+    const channelInfo = await resolveChannelInfo(channelId);
+    if (!channelInfo?.type) {
+      // Cannot determine channel type — drop to avoid policy bypass
+      logVerboseMessage(`mattermost: drop reaction (cannot resolve channel type for ${channelId})`);
+      return;
+    }
+    const kind = channelKind(channelInfo.type);
+
+    // Enforce DM/group policy and allowlist checks (same as normal messages)
+    if (kind === "direct") {
+      const dmPolicy = account.config.dmPolicy ?? "pairing";
+      if (dmPolicy === "disabled") {
+        logVerboseMessage(`mattermost: drop reaction (dmPolicy=disabled sender=${userId})`);
+        return;
+      }
+      // For pairing/allowlist modes, only allow reactions from approved senders
+      if (dmPolicy !== "open") {
+        const configAllowFrom = normalizeAllowList(account.config.allowFrom ?? []);
+        const storeAllowFrom = normalizeAllowList(
+          await core.channel.pairing.readAllowFromStore("mattermost").catch(() => []),
+        );
+        const effectiveAllowFrom = Array.from(new Set([...configAllowFrom, ...storeAllowFrom]));
+        const allowed = isSenderAllowed({
+          senderId: userId,
+          senderName,
+          allowFrom: effectiveAllowFrom,
+        });
+        if (!allowed) {
+          logVerboseMessage(
+            `mattermost: drop reaction (dmPolicy=${dmPolicy} sender=${userId} not allowed)`,
+          );
+          return;
+        }
+      }
+    } else if (kind) {
+      const defaultGroupPolicy = cfg.channels?.defaults?.groupPolicy;
+      const groupPolicy = account.config.groupPolicy ?? defaultGroupPolicy ?? "allowlist";
+      if (groupPolicy === "disabled") {
+        logVerboseMessage(`mattermost: drop reaction (groupPolicy=disabled channel=${channelId})`);
+        return;
+      }
+      if (groupPolicy === "allowlist") {
+        const configAllowFrom = normalizeAllowList(account.config.allowFrom ?? []);
+        const configGroupAllowFrom = normalizeAllowList(account.config.groupAllowFrom ?? []);
+        const storeAllowFrom = normalizeAllowList(
+          await core.channel.pairing.readAllowFromStore("mattermost").catch(() => []),
+        );
+        const effectiveGroupAllowFrom = Array.from(
+          new Set([
+            ...(configGroupAllowFrom.length > 0 ? configGroupAllowFrom : configAllowFrom),
+            ...storeAllowFrom,
+          ]),
+        );
+        // Drop when allowlist is empty (same as normal message handler)
+        const allowed =
+          effectiveGroupAllowFrom.length > 0 &&
+          isSenderAllowed({
+            senderId: userId,
+            senderName,
+            allowFrom: effectiveGroupAllowFrom,
+          });
+        if (!allowed) {
+          logVerboseMessage(`mattermost: drop reaction (groupPolicy=allowlist sender=${userId})`);
+          return;
+        }
+      }
+    }
+
+    const teamId = channelInfo?.team_id ?? undefined;
+    const route = core.channel.routing.resolveAgentRoute({
+      cfg,
+      channel: "mattermost",
+      accountId: account.accountId,
+      teamId,
+      peer: {
+        kind,
+        id: kind === "direct" ? userId : channelId,
+      },
+    });
+    const sessionKey = route.sessionKey;
+
+    const eventText = `Mattermost reaction ${action}: :${emojiName}: by @${senderName} on post ${postId} in channel ${channelId}`;
+
+    core.system.enqueueSystemEvent(eventText, {
+      sessionKey,
+      contextKey: `mattermost:reaction:${postId}:${emojiName}:${userId}:${action}`,
+    });
+
+    logVerboseMessage(
+      `mattermost reaction: ${action} :${emojiName}: by ${senderName} on ${postId}`,
+    );
+  };
+
   const inboundDebounceMs = core.channel.debounce.resolveInboundDebounceMs({
     cfg,
     channel: "mattermost",
@@ -928,6 +1042,9 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
     nextSeq: () => seq++,
     onPosted: async (post, payload) => {
       await debouncer.enqueue({ post, payload });
+    },
+    onReaction: async (payload) => {
+      await handleReactionEvent(payload);
     },
   });
 
