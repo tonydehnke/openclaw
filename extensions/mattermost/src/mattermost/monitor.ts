@@ -1048,15 +1048,19 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
     },
   });
 
-  await runWithReconnect(connectOnce, {
-    abortSignal: opts.abortSignal,
-    jitterRatio: 0.2,
-    onError: (err) => {
-      runtime.error?.(`mattermost connection failed: ${String(err)}`);
-      opts.statusSink?.({ lastError: String(err), connected: false });
-    },
-    onReconnect: (delayMs) => {
-      runtime.log?.(`mattermost reconnecting in ${Math.round(delayMs / 1000)}s`);
-    },
-  });
+  try {
+    await runWithReconnect(connectOnce, {
+      abortSignal: opts.abortSignal,
+      jitterRatio: 0.2,
+      onError: (err) => {
+        runtime.error?.(`mattermost connection failed: ${String(err)}`);
+        opts.statusSink?.({ lastError: String(err), connected: false });
+      },
+      onReconnect: (delayMs) => {
+        runtime.log?.(`mattermost reconnecting in ${Math.round(delayMs / 1000)}s`);
+      },
+    });
+  } finally {
+    unregisterInteractions?.();
+  }
 }

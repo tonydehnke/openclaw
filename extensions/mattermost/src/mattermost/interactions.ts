@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac } from "node:crypto";
 import type { MattermostClient } from "./client.js";
 import { getMattermostRuntime } from "../runtime.js";
 

@@ -52,6 +52,22 @@ function readStringParam(
   }
   return value;
 }
+
+function readNumberParam(
+  params: Record<string, unknown>,
+  key: string,
+  options: { integer?: boolean } = {},
+): number | undefined {
+  const raw = params[key];
+  if (typeof raw === "number") {
+    return options.integer ? Math.trunc(raw) : raw;
+  }
+  if (typeof raw === "string") {
+    const n = options.integer ? parseInt(raw, 10) : parseFloat(raw);
+    return isNaN(n) ? undefined : n;
+  }
+  return undefined;
+}
 import { getSlackRuntime } from "./runtime.js";
 
 const meta = getChatChannelMeta("slack");

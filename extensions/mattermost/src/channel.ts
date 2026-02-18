@@ -50,7 +50,7 @@ const mattermostMessageActions: ChannelMessageActionAdapter = {
       return (accountActions?.reactions ?? baseReactions ?? true) !== false;
     });
 
-    const actions: ChannelMessageActionName[] = ["send"];
+    const actions: ChannelMessageActionName[] = [];
     if (hasReactionCapableAccount) {
       actions.push("react");
     }
@@ -152,7 +152,7 @@ const mattermostMessageActions: ChannelMessageActionAdapter = {
 
     const message = typeof params.message === "string" ? params.message : "";
     const replyToId = typeof params.replyToId === "string" ? params.replyToId : undefined;
-    const resolvedAccountId = accountId ?? undefined;
+    const resolvedAccountId = accountId || undefined;
 
     // Build props with button attachments if buttons are provided
     let props: Record<string, unknown> | undefined;
