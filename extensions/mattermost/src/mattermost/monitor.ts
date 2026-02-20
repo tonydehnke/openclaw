@@ -35,6 +35,7 @@ import {
 } from "./client.js";
 import {
   createMattermostInteractionHandler,
+  resolveInteractionCallbackUrl,
   setInteractionCallbackUrl,
   setInteractionSecret,
 } from "./interactions.js";
@@ -233,9 +234,20 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
 
   // Register HTTP callback endpoint for interactive button clicks.
   // Mattermost POSTs to this URL when a user clicks a button action.
-  const gatewayPort = typeof cfg.gateway?.port === "number" ? cfg.gateway.port : 18789;
   const interactionPath = `/mattermost/interactions/${account.accountId}`;
-  const callbackUrl = `http://localhost:${gatewayPort}${interactionPath}`;
+  const callbackUrl = resolveInteractionCallbackUrl(
+    account.accountId,
+    cfg as {
+      gateway?: { port?: number };
+      channels?: {
+        mattermost?: {
+          interactions?: {
+            callbackBaseUrl?: string;
+          };
+        };
+      };
+    },
+  );
   setInteractionCallbackUrl(account.accountId, callbackUrl);
   const unregisterInteractions = registerPluginHttpRoute({
     path: interactionPath,
@@ -245,6 +257,22 @@ export async function monitorMattermostProvider(opts: MonitorMattermostOpts = {}
       botUserId,
       accountId: account.accountId,
       callbackUrl,
+      resolveSessionKey: async (payload) => {
+        const channelInfo = await fetchMattermostChannel(client, payload.channel_id);
+        const kind = channelKind(channelInfo?.type);
+        const teamId = channelInfo?.team_id ?? payload.team_id ?? undefined;
+        const route = core.channel.routing.resolveAgentRoute({
+          cfg,
+          channel: "mattermost",
+          accountId: account.accountId,
+          teamId,
+          peer: {
+            kind,
+            id: kind === "direct" ? payload.user_id : payload.channel_id,
+          },
+        });
+        return route.sessionKey;
+      },
       log: (msg) => runtime.log?.(msg),
     }),
     pluginId: "mattermost",

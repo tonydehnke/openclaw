@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { getMattermostRuntime } from "../runtime.js";
 import { fetchMattermostPost, updateMattermostPost, type MattermostClient } from "./client.js";
@@ -31,6 +31,17 @@ export type MattermostInteractionResponse = {
   ephemeral_text?: string;
 };
 
+type InteractionCallbackConfig = {
+  gateway?: { port?: number };
+  channels?: {
+    mattermost?: {
+      interactions?: {
+        callbackBaseUrl?: string;
+      };
+    };
+  };
+};
+
 // ── Callback URL registry ──────────────────────────────────────────────
 
 const callbackUrls = new Map<string, string>();
@@ -50,11 +61,16 @@ export function getInteractionCallbackUrl(accountId: string): string | undefined
  */
 export function resolveInteractionCallbackUrl(
   accountId: string,
-  cfg?: { gateway?: { port?: number } },
+  cfg?: InteractionCallbackConfig,
 ): string {
   const cached = callbackUrls.get(accountId);
   if (cached) {
     return cached;
+  }
+  const callbackBaseUrl = cfg?.channels?.mattermost?.interactions?.callbackBaseUrl?.trim();
+  const normalizedBaseUrl = callbackBaseUrl ? callbackBaseUrl.replace(/\/+$/, "") : undefined;
+  if (normalizedBaseUrl && /^https?:\/\//i.test(normalizedBaseUrl)) {
+    return `${normalizedBaseUrl}/mattermost/interactions/${accountId}`;
   }
   const port = typeof cfg?.gateway?.port === "number" ? cfg.gateway.port : 18789;
   return `http://localhost:${port}/mattermost/interactions/${accountId}`;
@@ -82,7 +98,7 @@ export function getInteractionSecret(): string {
 
 export function generateInteractionToken(context: Record<string, unknown>): string {
   const secret = getInteractionSecret();
-  const payload = JSON.stringify(context, Object.keys(context).sort());
+  const payload = JSON.stringify(canonicalizeForSigning(context));
   return createHmac("sha256", secret).update(payload).digest("hex");
 }
 
@@ -97,6 +113,20 @@ export function verifyInteractionToken(context: Record<string, unknown>, token: 
     mismatch |= expected.charCodeAt(i) ^ token.charCodeAt(i);
   }
   return mismatch === 0;
+}
+
+function canonicalizeForSigning(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => canonicalizeForSigning(entry));
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+      out[key] = canonicalizeForSigning((value as Record<string, unknown>)[key]);
+    }
+    return out;
+  }
+  return value;
 }
 
 // ── Button builder helpers ─────────────────────────────────────────────
@@ -218,6 +248,7 @@ export function createMattermostInteractionHandler(params: {
   botUserId: string;
   accountId: string;
   callbackUrl: string;
+  resolveSessionKey?: (payload: MattermostInteractionPayload) => Promise<string>;
   log?: (message: string) => void;
 }): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const { client, botUserId, accountId, log } = params;
@@ -303,8 +334,17 @@ export function createMattermostInteractionHandler(params: {
       `by ${payload.user_name ?? payload.user_id} ` +
       `in channel ${payload.channel_id}`;
 
+    const fallbackSessionKey = `mattermost:${accountId}:channel:${payload.channel_id}`;
+    let sessionKey = fallbackSessionKey;
+    if (params.resolveSessionKey) {
+      try {
+        sessionKey = await params.resolveSessionKey(payload);
+      } catch (err) {
+        log?.(`mattermost interaction: resolveSessionKey failed: ${String(err)}`);
+      }
+    }
     core.system.enqueueSystemEvent(eventLabel, {
-      sessionKey: `mattermost:${accountId}:channel:${payload.channel_id}`,
+      sessionKey,
       contextKey: `mattermost:interaction:${payload.post_id}:${actionId}`,
     });
 
