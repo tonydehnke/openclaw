@@ -12,14 +12,13 @@ import {
 } from "./interactions.js";
 
 function createFakeRequest(payload: unknown): IncomingMessage {
-  const req = new EventEmitter() as IncomingMessage & {
-    method: string;
-    socket: { remoteAddress?: string };
-    destroy: () => void;
-  };
+  const req = new EventEmitter() as IncomingMessage;
   req.method = "POST";
-  req.socket = { remoteAddress: "127.0.0.1" };
-  req.destroy = () => {};
+  Object.defineProperty(req, "socket", {
+    value: { remoteAddress: "127.0.0.1" },
+    writable: true,
+  });
+  req.destroy = (() => {}) as typeof req.destroy;
   queueMicrotask(() => {
     req.emit("data", Buffer.from(JSON.stringify(payload)));
     req.emit("end");
