@@ -1,7 +1,7 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHmac, randomBytes } from "node:crypto";
-import type { MattermostClient } from "./client.js";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { getMattermostRuntime } from "../runtime.js";
+import type { MattermostClient } from "./client.js";
 
 const INTERACTION_MAX_BODY_BYTES = 64 * 1024;
 const INTERACTION_BODY_TIMEOUT_MS = 10_000;
