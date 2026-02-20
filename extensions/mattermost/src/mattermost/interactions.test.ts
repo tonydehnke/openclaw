@@ -180,4 +180,68 @@ describe("mattermost interactions", () => {
     expect(response.getHeader("content-type")).toBe("application/json");
     expect(response.getBody().length).toBeGreaterThan(0);
   });
+
+  it("falls back to channel-based session key when resolveSessionKey throws", async () => {
+    const enqueueSystemEvent = vi.fn();
+    setMattermostRuntime({
+      system: { enqueueSystemEvent },
+    } as any);
+
+    const client = {
+      request: vi.fn(async (_path: string, init?: RequestInit) => {
+        if (init?.method === "PUT") {
+          return { id: "post-1" };
+        }
+        return {
+          id: "post-1",
+          message: "Original",
+          props: {
+            attachments: [{ text: "Pick", actions: [{ id: "approve", name: "Approve" }] }],
+          },
+        };
+      }),
+    } as any;
+
+    const payloadBase: MattermostInteractionPayload = {
+      user_id: "user-1",
+      user_name: "alice",
+      channel_id: "channel-1",
+      post_id: "post-1",
+      context: {
+        action_id: "approve",
+      },
+    };
+    const token = generateInteractionToken(payloadBase.context!);
+    const payload = {
+      ...payloadBase,
+      context: {
+        ...payloadBase.context,
+        _token: token,
+      },
+    };
+
+    const resolveSessionKey = vi.fn(async () => {
+      throw new Error("channel lookup failed");
+    });
+    const handler = createMattermostInteractionHandler({
+      client,
+      botUserId: "bot-user",
+      accountId: "default",
+      callbackUrl: "http://localhost:18789/mattermost/interactions/default",
+      resolveSessionKey,
+    });
+    const req = createFakeRequest(payload);
+    const response = createFakeResponse();
+
+    await handler(req, response.res);
+
+    expect(resolveSessionKey).toHaveBeenCalled();
+    expect(enqueueSystemEvent).toHaveBeenCalledWith(
+      expect.stringContaining('action="approve"'),
+      expect.objectContaining({
+        sessionKey: "mattermost:default:channel:channel-1",
+      }),
+    );
+    expect(response.res.statusCode).toBe(200);
+  });
 });
